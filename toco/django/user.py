@@ -82,10 +82,29 @@ class User(Object):
         schema = {
             'TableName': 'toco_users',
             'KeySchema': [
-                {'AttributeName':'email', 'KeyType':'HASH'},
+                {'AttributeName':'id', 'KeyType':'HASH'},
                 ],
             'AttributeDefinitions':[
+                {'AttributeName':'id', 'AttributeType':'S'},
                 {'AttributeName':'email', 'AttributeType':'S'},
+                ],
+            'GlobalSecondaryIndexes':[
+                {
+                    'IndexName': 'email',
+                    'KeySchema': [
+                        {
+                            'AttributeName': 'email',
+                            'KeyType': 'HASH'
+                            },
+                        ],
+                    'Projection': {
+                        'ProjectionType': 'ALL',
+                        },
+                    'ProvisionedThroughput': {
+                        'ReadCapacityUnits': 10,
+                        'WriteCapacityUnits': 10
+                        }
+                    },
                 ],
             'ProvisionedThroughput':{
                 'ReadCapacityUnits':10,
@@ -93,6 +112,20 @@ class User(Object):
                 },
             }
         return schema
+
+    @staticmethod
+    def from_email(email):
+        table = boto3.resource('dynamodb').Table(User.TABLE_NAME())
+        response = table.query(
+            IndexName='email',
+            Select='ALL_ATTRIBUTES',
+            KeyConditionExpression=Key('email').eq(email)
+            )
+        ids = [User(i['id']) for i in response['Items']]
+        if ids:
+            return ids[0]
+        else:
+            return None
 
     def get_new_session_token(self, expiry_minutes=60*24, **kwargs):
         token = SessionToken(user=self, expiry_minutes=expiry_minutes, **kwargs)
