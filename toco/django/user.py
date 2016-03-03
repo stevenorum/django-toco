@@ -10,6 +10,8 @@ import hashlib
 import hmac
 import logging
 import os
+import random
+import string
 import time
 from toco.object import Object, RELATION_SUFFIX
 import uuid
@@ -52,7 +54,7 @@ class User(Object):
         '''
         Verifies a user's password is correct and returns the user object if it is.
         '''
-        u = User(email=email)
+        u = User.from_email(email=email)
         if not u.in_db:
             return None
         hash = HASHES[u.algo](password, u.salt)
@@ -115,17 +117,36 @@ class User(Object):
 
     @staticmethod
     def from_email(email):
+        User(id='foo') # create the table if necessary
         table = boto3.resource('dynamodb').Table(User.TABLE_NAME())
         response = table.query(
             IndexName='email',
             Select='ALL_ATTRIBUTES',
             KeyConditionExpression=Key('email').eq(email)
             )
-        ids = [User(i['id']) for i in response['Items']]
+        ids = [User(id=i['id']) for i in response['Items']]
         if ids:
             return ids[0]
         else:
             return None
+
+    @staticmethod
+    def generate_id():
+        return ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(12))
+
+    @staticmethod
+    def new(email, password):
+        if User.from_email(email):
+            raise RuntimeException("User already exists.")
+        for i in range(10):
+            id = User.generate_id()
+            user = User(id=id, email=email)
+            if not user.in_db:
+                user.create()
+                user.set_password(password)
+                user.save()
+                return user
+        raise RuntimeException("Unable to create user!")
 
     def get_new_session_token(self, expiry_minutes=60*24, **kwargs):
         token = SessionToken(user=self, expiry_minutes=expiry_minutes, **kwargs)
@@ -276,7 +297,7 @@ class PasswordResetRequest(Object):
             # Might want to add an exception here, but either way, the website should display it as if it was a valid request.
             return None
         if email:
-            self.user = User(email=email)
+            self.user = User.from_email(email)
         now = int(time.time())
         if not self.__dict__.get('created') and not self.__dict__.get('expiry'):
             # Only add these if it's a new request.
